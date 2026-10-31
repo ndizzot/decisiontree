@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decision Tree</title>
+<style>
+  :root {
+    --bg: #f6f5f1;
+    --card: #ffffff;
+    --ink: #1b1b1b;
+    --muted: #6b6b66;
+    --line: #b9b7ae;
+    --accent: #1f4fd8;
+    --accent-ink: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141414; --card: #1f1f1e; --ink: #f1f0ec; --muted: #9b9a94;
+      --line: #4a4a46; --accent: #7aa2ff; --accent-ink: #0d1b3d;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141414; --card: #1f1f1e; --ink: #f1f0ec; --muted: #9b9a94;
+    --line: #4a4a46; --accent: #7aa2ff; --accent-ink: #0d1b3d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 17px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 120px; }
+  header { text-align: center; margin-bottom: 28px; }
+  h1 { margin: 0; font-size: 2rem; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin: 4px 0 0; }
+  .restart { margin-top: 10px; background: none; border: 0; color: var(--muted);
+    text-decoration: underline; font: inherit; cursor: pointer; }
+  .restart[hidden] { display: none; }
+
+  .line { width: 2px; height: 28px; background: var(--line); margin: 0 auto; }
+  .card {
+    background: var(--card); border: 2px solid var(--line); border-radius: 14px;
+    padding: 18px 20px; text-align: center; max-width: 520px; margin: 0 auto;
+  }
+  .card .step { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .card p { margin: 6px 0 0; font-size: 1.15rem; font-weight: 600; }
+  .card .hint { font-size: .95rem; font-weight: 400; color: var(--muted); }
+  .names { display: grid; gap: 10px; margin-top: 14px; }
+  .names input {
+    font: inherit; padding: 10px 12px; border-radius: 10px;
+    border: 2px solid var(--line); background: var(--bg); color: var(--ink);
+  }
+
+  .opts { display: flex; justify-content: center; gap: 0; flex-wrap: nowrap; }
+  .opt { position: relative; padding: 20px 6px 0; flex: 0 1 240px; display: flex; justify-content: center; }
+  .opt::before, .opt::after { content: ""; position: absolute; top: 0; height: 20px; width: 50%; border-top: 2px solid var(--line); }
+  .opt::before { left: 0; }
+  .opt::after { right: 0; border-left: 2px solid var(--line); }
+  .opt:first-child::before { border-top: 0; }
+  .opt:last-child::after { border-top: 0; }
+  .opt button, .go {
+    font: inherit; font-weight: 600; width: 100%; padding: 12px 14px; cursor: pointer;
+    background: var(--card); color: var(--ink); border: 2px solid var(--accent); border-radius: 12px;
+  }
+  .go { width: auto; margin-top: 14px; background: var(--accent); color: var(--accent-ink); }
+  .opt button:hover, .opt button:focus-visible { background: var(--accent); color: var(--accent-ink); outline: none; }
+  .go:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+  .opt.picked button { background: var(--accent); color: var(--accent-ink); }
+  .opt.dim button { border-style: dashed; border-color: var(--line); color: var(--muted); font-weight: 500; }
+  .opt.dim button:hover { background: var(--card); color: var(--ink); border-color: var(--accent); }
+
+  .verdict { border-color: var(--accent); border-width: 3px; padding: 26px 22px; }
+  .verdict .step { color: var(--accent); }
+  .verdict h2 { margin: 6px 0 10px; font-size: 1.8rem; letter-spacing: -0.01em; }
+  .verdict p { font-weight: 400; font-size: 1.05rem; }
+  .score { margin-top: 10px; color: var(--muted); font-size: .9rem; }
+  .after { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
+  .after button { font: inherit; padding: 10px 16px; border-radius: 10px; cursor: pointer;
+    background: var(--card); color: var(--ink); border: 2px solid var(--line); }
+  .after button:hover { border-color: var(--accent); }
+
+  @media (max-width: 640px) {
+    .opts { flex-direction: column; align-items: stretch; }
+    .opt { flex: none; padding-top: 14px; }
+    .opt::before { display: none; }
+    .opt::after { width: 0; height: 14px; left: 50%; right: auto; border-top: 0; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .card, .opts { animation: rise .25s ease-out both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Decision Tree</h1>
+    <p class="sub">For the person who has to decide.</p>
+    <button class="restart" id="restart" hidden>Start over</button>
+  </header>
+  <div id="flow" aria-live="polite"></div>
+</main>
+
+<script>
+/* ============================================================
+   THE TREE. Everything funny lives in the Obsidian note
+   "Decision Tree". build.py regenerates the block between the
+   DATA markers from that note, so edit the note, not this block.
+   The code underneath only draws it.
+
+   A scenario has a start node and a set of nodes. Node types:
+   - question: { q, hint?, options: [{ t, to, add?: {a, b} }] }
+   - names:    { names: true, q, hint?, to }       (asks for two names)
+   - verdict:  { verdict, text }                   (the ending)
+   - tally:    { tally: true, a, b, tie }          (ending picked by score)
+   Text can use {a} and {b} (the two names) and {sa} and {sb} (scores).
+   Order of the questions is the order of priority: an early
+   answer that ends in a verdict overrides everything after it.
+   ============================================================ */
+/*DATA-START*/
+const SCENARIOS = [
+  {
+    "id": "i-m-in-a-coma",
+    "title": "I'm in a coma",
+    "blurb": "Pull the plug, or not.",
+    "start": "intro",
+    "nodes": {
+      "intro": {
+        "q": "Official notice. He is in a coma. The hospital handed you a clipboard, and you were picked because you're the one who showed up.",
+        "options": [
+          {
+            "t": "Give me the clipboard",
+            "to": "pregnant"
+          }
+        ]
+      },
+      "pregnant": {
+        "q": "Is anybody pregnant?",
+        "options": [
+          {
+            "t": "No. Next.",
+            "to": "veg"
+          },
+          {
+            "t": "Yes, his girlfriend. It would be his first kid.",
+            "to": "smalldef"
+          },
+          {
+            "t": "Yes, his girlfriend, and he already has kids",
+            "to": "veg"
+          },
+          {
+            "t": "Yes, and it's not clear that's his girlfriend",
+            "to": "dna"
+          }
+        ]
+      },
+      "dna": {
+        "q": "Has anybody taken a paternity test?",
+        "options": [
+          {
+            "t": "Not yet. Everybody's avoiding the subject.",
+            "to": "sure"
+          },
+          {
+            "t": "Yes, and the envelope is sitting at the nurses' desk",
+            "to": "sure"
+          }
+        ]
+      },
+      "sure": {
+        "q": "Be honest. Do you think it's his?",
+        "options": [
+          {
+            "t": "Yes",
+            "to": "paternity"
+          },
+          {
+            "t": "Honestly, no",
+            "to": "not-his"
+          },
+          {
+            "t": "I'm not touching that",
+            "to": "paternity"
+          }
+        ]
+      },
+      "smalldef": {
+        "q": "Is there a real chance he wakes up with only small deficits?",
+        "options": [
+          {
+            "t": "Yes, the doctors said so",
+            "to": "baby"
+          },
+          {
+            "t": "The doctors won't say. They keep checking the clipboard.",
+            "to": "baby"
+          },
+          {
+            "t": "No. If he wakes up, it's big.",
+            "to": "veg"
+          }
+        ],
+        "hint": "A limp, a slur, forgets the Wi-Fi password. Nothing big."
+      },
+      "veg": {
+        "q": "Is there a chance he'll be a vegetable?",
+        "options": [
+          {
+            "t": "No, he's still in there",
+            "to": "chances"
+          },
+          {
+            "t": "Maybe. The doctors keep saying \"we'll see.\"",
+            "to": "chances"
+          },
+          {
+            "t": "Yes. The doctors said the word out loud.",
+            "to": "veg-odds"
+          }
+        ]
+      },
+      "veg-odds": {
+        "q": "Is there any chance he wakes up at all?",
+        "options": [
+          {
+            "t": "None. 0%.",
+            "to": "unplug-quality",
+            "now": true
+          },
+          {
+            "t": "Some, but it's small",
+            "to": "help"
+          }
+        ]
+      },
+      "chances": {
+        "q": "What are the chances he wakes up normal?",
+        "options": [
+          {
+            "t": "Over 50%. He's coming back arguing about the Lakers.",
+            "to": "keep-odds"
+          },
+          {
+            "t": "Exactly 50%. A coin flip.",
+            "to": "coin"
+          },
+          {
+            "t": "Under 50%, but it's not nothing",
+            "to": "help"
+          },
+          {
+            "t": "Under 50%, and the doctors are being polite",
+            "to": "help"
+          },
+          {
+            "t": "The doctors won't give a number",
+            "to": "help"
+          }
+        ],
+        "hint": "Over 50%, he stays."
+      },
+      "coin": {
+        "q": "A true coin flip.",
+        "options": [
+          {
+            "t": "\"Keep me on. I'm not done.\"",
+            "to": "coin-keep"
+          },
+          {
+            "t": "\"Don't make a thing of it. Pull it.\"",
+            "to": "coin-pull"
+          },
+          {
+            "t": "Something about the Lakers",
+            "to": "limbs"
+          }
+        ],
+        "hint": "What would he say if he could talk?"
+      },
+      "help": {
+        "q": "How much help does he need afterward?",
+        "options": [
+          {
+            "t": "Nothing, he's fine",
+            "to": "limbs"
+          },
+          {
+            "t": "A little, and he'll complain about it",
+            "to": "limbs"
+          },
+          {
+            "t": "A lot, forever. Somebody's wiping him.",
+            "to": "unplug-help"
+          }
+        ],
+        "hint": "Be honest about who's doing the wiping."
+      },
+      "limbs": {
+        "q": "And physically, what's missing?",
+        "options": [
+          {
+            "t": "Nothing. All parts accounted for.",
+            "to": "cost"
+          },
+          {
+            "t": "One arm or one leg. He'll live.",
+            "to": "cost"
+          },
+          {
+            "t": "Both legs. He sits for most things anyway.",
+            "to": "cost"
+          },
+          {
+            "t": "Both arms",
+            "to": "unplug-limbs"
+          },
+          {
+            "t": "All four",
+            "to": "unplug-limbs"
+          }
+        ]
+      },
+      "cost": {
+        "q": "How much is it costing to keep him going?",
+        "options": [
+          {
+            "t": "Insurance has it handled",
+            "to": "patience"
+          },
+          {
+            "t": "A lot. It's costing a lot.",
+            "to": "odds"
+          }
+        ]
+      },
+      "patience": {
+        "q": "Money is not the problem. How long do you wait?",
+        "options": [
+          {
+            "t": "Six months",
+            "to": "wait-six"
+          },
+          {
+            "t": "A year",
+            "to": "wait-year"
+          },
+          {
+            "t": "Until the machines give out",
+            "to": "keep-covered"
+          }
+        ]
+      },
+      "odds": {
+        "q": "Is there still a real chance he comes back?",
+        "options": [
+          {
+            "t": "Real chance. He's a fighter.",
+            "to": "mortgage"
+          },
+          {
+            "t": "Not much of a chance",
+            "to": "months"
+          }
+        ]
+      },
+      "months": {
+        "q": "How long has he been under?",
+        "options": [
+          {
+            "t": "Under 4 months",
+            "to": "keep-wait"
+          },
+          {
+            "t": "4 months or more",
+            "to": "unplug-cost"
+          }
+        ]
+      },
+      "baby": {
+        "verdict": "Keep him alive",
+        "text": "He wants to see his first child, and the doctors think he can make it back. That is not a suggestion, it's in the file. Keep the machines on and learn to hold a baby."
+      },
+      "paternity": {
+        "verdict": "Keep him alive, pending a paternity test",
+        "text": "Somebody is pregnant and nobody agrees on whose it is. He'd want to see this one for himself. Machines stay on until the results come back."
+      },
+      "not-his": {
+        "verdict": "Hold off until the DNA is in",
+        "text": "You don't think it's his, and the envelope is sitting right there. Keep him on until it's opened. If it isn't his, he needs to be awake for that conversation, and so do you."
+      },
+      "unplug-quality": {
+        "verdict": "Unplug",
+        "text": "Quality of life is the whole point, and he said so. Say a few words, play something good, and skip the sad song."
+      },
+      "keep-odds": {
+        "verdict": "Keep him alive",
+        "text": "Over 50% is better odds than most things he's bet on. Keep the machines on. He's coming back, and he's going to be loud about it."
+      },
+      "coin-keep": {
+        "verdict": "Keep him alive",
+        "text": "A coin flip, and he'd say keep me on. You were going to flip it anyway. Heads, he lives."
+      },
+      "coin-pull": {
+        "verdict": "Unplug",
+        "text": "A coin flip, and he told you not to make a thing of it. So don't. Say a few words and pick up the tab at the cafeteria."
+      },
+      "unplug-help": {
+        "verdict": "Unplug",
+        "text": "He would not want to be somebody's full-time job. Say it out loud once, sign the form, and let a nurse hold your hand."
+      },
+      "unplug-limbs": {
+        "verdict": "Unplug",
+        "text": "He can't scratch his own nose, hold a controller, or flip anybody off. A man has to be able to flip somebody off."
+      },
+      "keep-covered": {
+        "verdict": "Keep him alive",
+        "text": "Insurance has it and he has a life to wake up to. There is no decision here. Go get coffee. He'll be up."
+      },
+      "wait-six": {
+        "verdict": "Keep him alive, six months",
+        "text": "Money is no object, but patience is. Put a reminder in your phone for the six-month mark and bring a better clipboard."
+      },
+      "wait-year": {
+        "verdict": "Keep him alive, one year",
+        "text": "A full year of hospital cafeteria. He would do it for you. Probably."
+      },
+      "mortgage": {
+        "verdict": "Second mortgage",
+        "text": "The bill is huge, but there's a real chance. Call the bank. He's coming home, he just needs more time. Set a deadline today so nobody argues about it later: day 120."
+      },
+      "keep-wait": {
+        "verdict": "Keep him alive, for now",
+        "text": "It costs a lot and the odds are thin, but it hasn't been 4 months. Come back on day 120 with the clipboard."
+      },
+      "unplug-cost": {
+        "verdict": "Unplug",
+        "text": "The bill is big, the odds are small, and he's been under for 4 months or more. This is the part where love looks like a signature."
+      }
+    },
+    "min": 7,
+    "filler": [
+      "limbs",
+      "help",
+      "cost",
+      "months"
+    ]
+  },
+  {
+    "id": "two-girls-show-up-to-my-funeral",
+    "title": "Two girls show up to my funeral",
+    "blurb": "Nobody knows who the main girl is. Not even him.",
+    "start": "known",
+    "nodes": {
+      "known": {
+        "q": "Which hoochie has he known longer?",
+        "options": [
+          {
+            "t": "{a}",
+            "to": "favor",
+            "add": {
+              "a": 1
+            }
+          },
+          {
+            "t": "{b}",
+            "to": "favor",
+            "add": {
+              "b": 1
+            }
+          },
+          {
+            "t": "Same year. Please don't make me do the math.",
+            "to": "favor"
+          }
+        ],
+        "hint": "Two women just walked in. He left no note on which one is the main girl."
+      },
+      "favor": {
+        "q": "If he called today and needed a favor, who answers the phone?",
+        "options": [
+          {
+            "t": "{a}",
+            "to": "hit",
+            "add": {
+              "a": 1
+            }
+          },
+          {
+            "t": "{b}",
+            "to": "hit",
+            "add": {
+              "b": 1
+            }
+          },
+          {
+            "t": "Both, but one of them is lying",
+            "to": "hit"
+          },
+          {
+            "t": "Neither. Voicemail, twice.",
+            "to": "hit"
+          }
+        ]
+      },
+      "hit": {
+        "q": "Did he get to hit?",
+        "options": [
+          {
+            "t": "{a}",
+            "to": "dressed",
+            "add": {
+              "a": 1
+            }
+          },
+          {
+            "t": "{b}",
+            "to": "dressed",
+            "add": {
+              "b": 1
+            }
+          },
+          {
+            "t": "Both. Do not say it out loud.",
+            "to": "dressed"
+          },
+          {
+            "t": "Neither. It was still on the list.",
+            "to": "dressed"
+          }
+        ],
+        "hint": "Answer like you were there. Don't explain how you know."
+      },
+      "dressed": {
+        "q": "Who dressed better today?",
+        "options": [
+          {
+            "t": "{a}",
+            "to": "ontime",
+            "add": {
+              "a": 1
+            }
+          },
+          {
+            "t": "{b}",
+            "to": "ontime",
+            "add": {
+              "b": 1
+            }
+          },
+          {
+            "t": "Both look good, which isn't helping",
+            "to": "ontime"
+          },
+          {
+            "t": "One of them wore white. To a funeral.",
+            "to": "ontime"
+          }
+        ]
+      },
+      "ontime": {
+        "q": "Who showed up on time?",
+        "options": [
+          {
+            "t": "{a}",
+            "to": "kidsin",
+            "add": {
+              "a": 1
+            }
+          },
+          {
+            "t": "{b}",
+            "to": "kidsin",
+            "add": {
+              "b": 1
+            }
+          },
+          {
+            "t": "Both, and somehow they sat apart",
+            "to": "kidsin"
+          },
+          {
+            "t": "Neither. They hit the service doors at the same time.",
+            "to": "kidsin"
+          }
+        ],
+        "hint": "On time means the viewing, not the service. Showing up for the service is just attendance."
+      },
+      "kidsin": {
+        "q": "Who brought kids?",
+        "options": [
+          {
+            "t": "{a} brought kids",
+            "to": "baddest",
+            "add": {
+              "b": 1
+            }
+          },
+          {
+            "t": "{b} brought kids",
+            "to": "baddest",
+            "add": {
+              "a": 1
+            }
+          },
+          {
+            "t": "Both brought kids. So that was his type.",
+            "to": "baddest"
+          },
+          {
+            "t": "Neither. For once he kept his word.",
+            "to": "baddest"
+          }
+        ],
+        "hint": "He said he doesn't date women with kids. The one without them gets the point."
+      },
+      "baddest": {
+        "q": "Who's the baddest?",
+        "options": [
+          {
+            "t": "{a}",
+            "to": "job",
+            "add": {
+              "a": 1
+            }
+          },
+          {
+            "t": "{b}",
+            "to": "job",
+            "add": {
+              "b": 1
+            }
+          },
+          {
+            "t": "Honestly a tie",
+            "to": "job"
+          }
+        ],
+        "hint": "Be honest. You're at a funeral."
+      },
+      "job": {
+        "q": "Who has the better job?",
+        "options": [
+          {
+            "t": "{a}",
+            "to": "crying",
+            "add": {
+              "a": 1
+            }
+          },
+          {
+            "t": "{b}",
+            "to": "crying",
+            "add": {
+              "b": 1
+            }
+          },
+          {
+            "t": "Neither of them works",
+            "to": "crying"
+          }
+        ]
+      },
+      "crying": {
+        "q": "Who's actually crying?",
+        "options": [
+          {
+            "t": "{a}",
+            "to": "liked",
+            "add": {
+              "a": 1
+            }
+          },
+          {
+            "t": "{b}",
+            "to": "liked",
+            "add": {
+              "b": 1
+            }
+          },
+          {
+            "t": "Both, loudly",
+            "to": "liked"
+          },
+          {
+            "t": "Neither, and that's suspicious",
+            "to": "liked"
+          }
+        ]
+      },
+      "liked": {
+        "q": "Who did he actually like more?",
+        "options": [
+          {
+            "t": "{a}",
+            "to": "tally",
+            "add": {
+              "a": 2
+            }
+          },
+          {
+            "t": "{b}",
+            "to": "tally",
+            "add": {
+              "b": 2
+            }
+          },
+          {
+            "t": "He liked them the same, that was the problem",
+            "to": "tally"
+          }
+        ],
+        "hint": "This one counts double. Go with your gut."
+      },
+      "tally": {
+        "tally": true,
+        "a": {
+          "verdict": "Front row: {a}",
+          "text": "Final score {sa} to {sb}. {a} sits up front. {b} gets the second row, which has a very nice view."
+        },
+        "b": {
+          "verdict": "Front row: {b}",
+          "text": "Final score {sb} to {sa}. {b} sits up front. {a} gets the second row, which has a very nice view."
+        },
+        "tie": {
+          "verdict": "It's a tie",
+          "text": "Final score {sa} to {sb}. Front row has two seats. Seat them side by side, hand them both tissues, and do not leave the room."
+        }
+      }
+    }
+  }
+];
+/*DATA-END*/
+
+/* ============================================================
+   THE DRAWING CODE. Rewinding works by replaying the answers.
+   ============================================================ */
+const flow = document.getElementById("flow");
+const restartBtn = document.getElementById("restart");
+const state = { scn: null, picks: [], names: { a: "The one in red", b: "The one in blue" } };
+
+function replay() {
+  const sc = state.scn;
+  let id = sc.start, steps = [], scores = { a: 0, b: 0 }, held = null;
+  const asked = new Set();
+  /* A verdict reached before the minimum is held; filler questions run until the minimum, then it shows. */
+  const route = (next, now) => {
+    const t = sc.nodes[next];
+    if (!held && !now && sc.min && t && t.verdict && steps.length < sc.min) held = next;
+    if (!held) return next;
+    const f = (sc.filler || []).find(x => !asked.has(x));
+    return steps.length < sc.min && f ? f : held;
+  };
+  for (const p of state.picks) {
+    const n = sc.nodes[id];
+    asked.add(id);
+    steps.push({ n, pick: p, filler: !!held });
+    if (n.options) {
+      const o = n.options[p];
+      if (o.add) { scores.a += o.add.a || 0; scores.b += o.add.b || 0; }
+      id = route(o.to, o.now);
+    } else if (n.names) id = route(n.to);
+  }
+  return { steps, cur: sc.nodes[id], scores, filler: !!held && id !== held };
+}
+
+function fill(text, scores) {
+  return text.replace(/\{(a|b|sa|sb)\}/g, (_, k) =>
+    k === "a" ? state.names.a : k === "b" ? state.names.b : k === "sa" ? scores.a : scores.b);
+}
+
+function h(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function questionCard(n, label, scores) {
+  const c = h("div", "card");
+  c.append(h("div", "step", label), h("p", "", fill(n.q, scores)));
+  if (n.hint) c.lastChild.append(h("br"), h("span", "hint", fill(n.hint, scores)));
+  return c;
+}
+
+function optionRow(n, scores, pickedIdx, onPick) {
+  const row = h("div", "opts");
+  n.options.forEach((o, i) => {
+    const wrap = h("div", "opt" + (pickedIdx == null ? "" : i === pickedIdx ? " picked" : " dim"));
+    const b = h("button", "", fill(o.t, scores));
+    b.type = "button";
+    b.addEventListener("click", () => onPick(i));
+    wrap.append(b);
+    row.append(wrap);
+  });
+  return row;
+}
+
+function verdictCard(v, scores, showScore) {
+  const c = h("div", "card verdict");
+  c.append(h("div", "step", "Verdict"), h("h2", "", fill(v.verdict, scores)), h("p", "", fill(v.text, scores)));
+  if (showScore) c.append(h("div", "score", state.names.a + " " + scores.a + "  |  " + scores.b + " " + state.names.b));
+  const after = h("div", "after");
+  const again = h("button", "", "Run this one again");
+  again.type = "button";
+  again.addEventListener("click", () => { state.picks = []; draw(true); });
+  const other = h("button", "", "Pick another emergency");
+  other.type = "button";
+  other.addEventListener("click", () => { state.scn = null; state.picks = []; draw(true); });
+  after.append(again, other);
+  c.append(after);
+  return c;
+}
+
+function draw(scroll, scrollTo) {
+  flow.replaceChildren();
+  restartBtn.hidden = !state.scn;
+  let last = null;
+
+  if (!state.scn) {
+    const c = h("div", "card");
+    c.append(h("div", "step", "Start here"), h("p", "", "Pick the emergency."));
+    flow.append(c, h("div", "line"));
+    const row = h("div", "opts");
+    SCENARIOS.forEach(s => {
+      const wrap = h("div", "opt");
+      const b = h("button", "", s.title);
+      b.type = "button";
+      b.title = s.blurb;
+      b.addEventListener("click", () => { state.scn = s; state.picks = []; draw(true); });
+      wrap.append(b);
+      row.append(wrap);
+    });
+    flow.append(row);
+    last = row;
+  } else {
+    const { steps, cur, scores, filler } = replay();
+    steps.forEach((s, i) => {
+      const card = questionCard(s.n, "Step " + (i + 1) + (s.filler ? " · for the file" : ""), scores);
+      flow.append(card);
+      if (s.n.names) {
+        card.append(h("div", "hint", state.names.a + " and " + state.names.b));
+        flow.append(h("div", "line"));
+      } else {
+        flow.append(h("div", "line"));
+        const row = optionRow(s.n, scores, s.pick, idx => { state.picks = state.picks.slice(0, i).concat(idx); draw(true, i + 1); });
+        row.dataset.step = i;
+        flow.append(row, h("div", "line"));
+      }
+      if (scrollTo === i + 1) last = null;
+    });
+    const stepNo = steps.length + 1;
+    if (cur.verdict || cur.tally) {
+      const v = cur.tally ? (scores.a > scores.b ? cur.a : scores.b > scores.a ? cur.b : cur.tie) : cur;
+      const vc = verdictCard(v, scores, !!cur.tally);
+      flow.append(vc);
+      last = vc;
+    } else {
+      const card = questionCard(cur, "Step " + stepNo + (filler ? " · for the file" : ""), scores);
+      flow.append(card);
+      flow.append(h("div", "line"));
+      if (cur.names) {
+        const box = h("div", "names");
+        const ia = h("input"), ib = h("input");
+        ia.placeholder = "First woman"; ib.placeholder = "Second woman";
+        ia.value = state.names.a; ib.value = state.names.b;
+        ia.setAttribute("aria-label", "First name"); ib.setAttribute("aria-label", "Second name");
+        const go = h("button", "go", "Continue");
+        go.type = "button";
+        go.addEventListener("click", () => {
+          state.names.a = ia.value.trim() || "The one on the left";
+          state.names.b = ib.value.trim() || "The one on the right";
+          state.picks = state.picks.concat(0);
+          draw(true);
+        });
+        box.append(ia, ib);
+        card.append(box, go);
+        flow.lastChild.remove();
+        last = card;
+      } else {
+        const row = optionRow(cur, scores, null, idx => { state.picks = state.picks.concat(idx); draw(true); });
+        flow.append(row);
+        last = row;
+      }
+    }
+  }
+  if (scroll && last) {
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const target = scrollTo != null ? flow.querySelector('.opts[data-step="' + (scrollTo - 1) + '"]') || last : last;
+    target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
+    const first = last.querySelector("button, input");
+    if (first) first.focus({ preventScroll: true });
+  }
+}
+
+restartBtn.addEventListener("click", () => { state.scn = null; state.picks = []; draw(true); });
+draw(false);
+</script>
+</body>
+</html>
